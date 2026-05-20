@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EV Charging Booking System</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#f4f7fb;color:#172033}.top{background:#12344d;color:white;padding:18px 28px}.container{max-width:1200px;margin:20px auto;padding:0 18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:white;border-radius:14px;padding:18px;box-shadow:0 8px 24px #0001;margin-bottom:18px}input,select,button{padding:10px;margin:6px 0;border-radius:8px;border:1px solid #ccd6e0}button{background:#0f766e;color:white;border:0;cursor:pointer}button.danger{background:#b91c1c}#map{height:360px;border-radius:14px}.muted{color:#667085}.row{display:flex;gap:10px;flex-wrap:wrap}table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}.hidden{display:none}.error{color:#b91c1c}.success{color:#047857}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top"><h1>EV Charging Station Booking System</h1><p>Driver booking + Admin management demo</p></div>
+<div class="container">
+  <div class="card" id="loginCard">
+    <h2>Login</h2>
+    <p class="muted">Demo users: <b>driver1/password</b>, <b>driver2/password</b>, <b>admin/admin</b></p>
+    <div class="row"><input id="username" placeholder="username"><input id="password" type="password" placeholder="password"><button onclick="login()">Login</button></div>
+    <p id="loginMsg"></p>
+  </div>
+  <div id="app" class="hidden">
+    <div class="card"><b id="who"></b> <button onclick="logout()" style="float:right">Logout</button></div>
+    <div class="grid">
+      <div class="card"><h2>Map</h2><div id="map"></div></div>
+      <div class="card"><h2>Selected station</h2><div id="stationDetails">Select a station from the map.</div><h3>Create / modify booking</h3>
+        <input type="hidden" id="bookingId">
+        <label>Connector</label><br><select id="connectorSelect"></select><br>
+        <label>Date</label><br><input type="date" id="date"><br>
+        <label>Start</label><br><input type="time" id="startTime"><br>
+        <label>End</label><br><input type="time" id="endTime"><br>
+        <button onclick="saveBooking()">Save booking</button> <button onclick="clearForm()">Clear</button>
+        <p id="bookingMsg"></p>
+      </div>
+    </div>
+    <div class="card"><h2>My bookings / All bookings for admin</h2><table><thead><tr><th>ID</th><th>Driver</th><th>Station</th><th>Connector</th><th>Date</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead><tbody id="bookingsBody"></tbody></table></div>
+    <div class="card hidden" id="adminPanel"><h2>Admin: add charging station</h2>
+      <input id="newStationName" placeholder="Station name"><input id="newAddress" placeholder="Address"><input id="newLat" placeholder="Latitude"><input id="newLng" placeholder="Longitude"><button onclick="addStation()">Add station</button>
+      <h3>Add connector</h3><input id="newConnectorStationId" placeholder="Station ID"><input id="newConnectorType" placeholder="Connector type"><button onclick="addConnector()">Add connector</button>
+      <p id="adminMsg"></p>
+    </div>
+  </div>
+</div>
+<script>
+const API = location.origin + '/rest';
+let currentUser=null, authHeader='', stations=[], connectors=[], selectedStation=null, map=null;
+function msg(id,text,cls=''){ const el=document.getElementById(id); el.textContent=text; el.className=cls; }
+function auth(){ return { 'Authorization': authHeader, 'Content-Type':'application/json' }; }
+async function request(path, options={}){ const res=await fetch(API+path, options); const text=await res.text(); let data=text?JSON.parse(text):null; if(!res.ok) throw new Error(data?.message || ('HTTP '+res.status)); return data; }
+async function login(){ const username=document.getElementById('username').value; const password=document.getElementById('password').value; authHeader='Basic '+btoa(username+':'+password); try{ currentUser=await request('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})}); document.getElementById('loginCard').classList.add('hidden'); document.getElementById('app').classList.remove('hidden'); document.getElementById('who').textContent='Logged in as '+currentUser.username+' ('+currentUser.role+')'; if(currentUser.role==='ADMIN') document.getElementById('adminPanel').classList.remove('hidden'); await loadAll(); }catch(e){ msg('loginMsg',e.message,'error'); } }
+function logout(){ location.reload(); }
+async function loadAll(){ stations=await request('/stations'); connectors=await request('/connectors'); drawMap(); renderBookings(); }
+function drawMap(){ if(!map){ map=L.map('map').setView([39.2,22.5],6); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map); } stations.forEach(s=>{ L.marker([s.latitude,s.longitude]).addTo(map).bindPopup('<b>'+s.stationName+'</b><br>'+s.address).on('click',()=>selectStation(s)); }); }
+function selectStation(s){ selectedStation=s; const cs=connectors.filter(c=>c.stationId===s.stationId); document.getElementById('stationDetails').innerHTML='<b>'+s.stationName+'</b><br>'+s.address+'<br>ID: '+s.stationId+'<br>Connectors: '+cs.map(c=>c.connectorType+' (#'+c.connectorId+')').join(', '); const sel=document.getElementById('connectorSelect'); sel.innerHTML=cs.map(c=>'<option value="'+c.connectorId+'">'+c.connectorType+' (#'+c.connectorId+')</option>').join(''); }
+async function renderBookings(){ try{ const bookings=await request('/bookings',{headers:auth()}); const body=document.getElementById('bookingsBody'); body.innerHTML=bookings.map(b=>{ const st=stations.find(s=>s.stationId===b.stationId); const co=connectors.find(c=>c.connectorId===b.connectorId); return `<tr><td>${b.bookingId}</td><td>${b.driverUsername}</td><td>${st?st.stationName:b.stationId}</td><td>${co?co.connectorType:b.connectorId}</td><td>${b.date}</td><td>${b.startTime}-${b.endTime}</td><td>${b.bookingStatus}</td><td><button onclick='editBooking(${JSON.stringify(b)})'>Edit</button> <button class="danger" onclick="cancelBooking(${b.bookingId})">Cancel</button></td></tr>`; }).join(''); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+async function saveBooking(){ if(!selectedStation){ msg('bookingMsg','Select a station first','error'); return; } const booking={driverUsername: currentUser.username,stationId: selectedStation.stationId,connectorId: Number(document.getElementById('connectorSelect').value),date: document.getElementById('date').value,startTime: document.getElementById('startTime').value, endTime: document.getElementById('endTime').value}; const id=document.getElementById('bookingId').value; try{ if(id) await request('/bookings/'+id,{method:'PUT',headers:auth(),body:JSON.stringify(booking)}); else await request('/bookings',{method:'POST',headers:auth(),body:JSON.stringify(booking)}); msg('bookingMsg','Booking saved','success'); clearForm(); await renderBookings(); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+function editBooking(b){ const s=stations.find(x=>x.stationId===b.stationId); selectStation(s); document.getElementById('bookingId').value=b.bookingId; document.getElementById('connectorSelect').value=b.connectorId; document.getElementById('date').value=b.date; document.getElementById('startTime').value=b.startTime; document.getElementById('endTime').value=b.endTime; }
+function clearForm(){ ['bookingId','date','startTime','endTime'].forEach(id=>document.getElementById(id).value=''); }
+async function cancelBooking(id){ try{ await request('/bookings/'+id,{method:'DELETE',headers:auth()}); await renderBookings(); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+async function addStation(){ try{ await request('/stations',{method:'POST',headers:auth(),body:JSON.stringify({stationName:val('newStationName'),address:val('newAddress'),latitude:Number(val('newLat')),longitude:Number(val('newLng'))})}); msg('adminMsg','Station added','success'); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+async function addConnector(){ try{ await request('/connectors',{method:'POST',headers:auth(),body:JSON.stringify({stationId:Number(val('newConnectorStationId')),connectorType:val('newConnectorType')})}); msg('adminMsg','Connector added','success'); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+function val(id){ return document.getElementById(id).value; }
+</script>
+</body>
+</html>

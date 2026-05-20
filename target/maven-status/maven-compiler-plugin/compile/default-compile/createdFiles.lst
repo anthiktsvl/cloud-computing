@@ -1,0 +1,13 @@
+city\org\rs\AuthResource.class
+city\org\rs\LoginRequest.class
+city\org\rs\BookingResource.class
+city\org\rs\User.class
+city\org\rs\ConnectorResource.class
+city\org\rs\Booking.class
+city\org\rs\AppDAO.class
+city\org\rs\StationResource.class
+city\org\rs\AuthUtil.class
+city\org\rs\ChargingStation.class
+city\org\rs\Connector.class
+city\org\rs\RequestLoggingFilter.class
+city\org\rs\ApiResponse.class
