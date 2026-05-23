@@ -51,6 +51,7 @@
     </properties>
 	  
   <build>
+    <finalName>MyWebsite</finalName>
     <sourceDirectory>src</sourceDirectory>
     <plugins>
       <plugin>
