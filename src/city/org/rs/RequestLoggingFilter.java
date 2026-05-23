@@ -16,7 +16,13 @@ public class RequestLoggingFilter implements ContainerRequestFilter, ContainerRe
         long start = (Long) req.getProperty(START_TIME);
         long elapsed = System.currentTimeMillis() - start;
         String instance = System.getenv("INSTANCE_ID"); if(instance == null) instance = "local-instance";
-        System.out.println(Instant.now()+" method="+req.getMethod()+" uri="+req.getUriInfo().getRequestUri()+" status="+res.getStatus()+" timeMs="+elapsed+" instance="+instance);
+        String logLine = "{\"timestamp\":\"" + Instant.now()
+                + "\",\"method\":\"" + req.getMethod()
+                + "\",\"uri\":\"" + req.getUriInfo().getRequestUri()
+                + "\",\"status\":" + res.getStatus()
+                + ",\"processingTimeMs\":" + elapsed
+                + ",\"instanceId\":\"" + instance + "\"}";
+        System.out.println(logLine);
         res.getHeaders().add("Access-Control-Allow-Origin", "*");
         res.getHeaders().add("Access-Control-Allow-Headers", "origin, content-type, accept, authorization");
         res.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");

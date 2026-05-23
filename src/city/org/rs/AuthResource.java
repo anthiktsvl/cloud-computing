@@ -16,7 +16,7 @@ public class AuthResource {
     public Response login(LoginRequest request) {
         User user = AppDAO.getInstance().authenticate(request.getUsername(), request.getPassword());
         if (user == null) return Response.status(Response.Status.UNAUTHORIZED).entity(new ApiResponse("Invalid username or password")).build();
-        user.setPassword(null);
-        return Response.ok(user).build();
+        User safeUser = new User(user.getUsername(), null, user.getRole());
+        return Response.ok(safeUser).build();
     }
 }

@@ -29,36 +29,89 @@ body{font-family:Arial,sans-serif;margin:0;background:#f4f7fb;color:#172033}.top
         <label>Date</label><br><input type="date" id="date"><br>
         <label>Start</label><br><input type="time" id="startTime"><br>
         <label>End</label><br><input type="time" id="endTime"><br>
+        <button onclick="checkAvailability()">Check availability</button>
         <button onclick="saveBooking()">Save booking</button> <button onclick="clearForm()">Clear</button>
         <p id="bookingMsg"></p>
+        <div id="slotSummary" class="muted"></div>
+        <div id="slotList" class="muted"></div>
       </div>
     </div>
     <div class="card"><h2>My bookings / All bookings for admin</h2><table><thead><tr><th>ID</th><th>Driver</th><th>Station</th><th>Connector</th><th>Date</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead><tbody id="bookingsBody"></tbody></table></div>
-    <div class="card hidden" id="adminPanel"><h2>Admin: add charging station</h2>
-      <input id="newStationName" placeholder="Station name"><input id="newAddress" placeholder="Address"><input id="newLat" placeholder="Latitude"><input id="newLng" placeholder="Longitude"><button onclick="addStation()">Add station</button>
-      <h3>Add connector</h3><input id="newConnectorStationId" placeholder="Station ID"><input id="newConnectorType" placeholder="Connector type"><button onclick="addConnector()">Add connector</button>
+    <div class="card hidden" id="adminPanel"><h2>Admin: station management</h2>
+      <input type="hidden" id="editStationId">
+      <input id="newStationName" placeholder="Station name"><input id="newAddress" placeholder="Address"><input id="newLat" placeholder="Latitude"><input id="newLng" placeholder="Longitude">
+      <button onclick="saveStation()">Save station</button>
+      <button onclick="clearStationForm()">Clear</button>
+      <h3>Stations</h3>
+      <table><thead><tr><th>ID</th><th>Name</th><th>Address</th><th>Coordinates</th><th>Actions</th></tr></thead><tbody id="stationsBody"></tbody></table>
+      <h2>Admin: connector management</h2>
+      <input type="hidden" id="editConnectorId">
+      <input id="newConnectorStationId" placeholder="Station ID"><input id="newConnectorType" placeholder="Connector type">
+      <button onclick="saveConnector()">Save connector</button>
+      <button onclick="clearConnectorForm()">Clear</button>
+      <h3>Connectors</h3>
+      <table><thead><tr><th>ID</th><th>Type</th><th>Station ID</th><th>Actions</th></tr></thead><tbody id="connectorsBody"></tbody></table>
       <p id="adminMsg"></p>
     </div>
   </div>
 </div>
 <script>
-const API = location.origin + '/rest';
-let currentUser=null, authHeader='', stations=[], connectors=[], selectedStation=null, map=null;
+const pathParts = location.pathname.split('/').filter(Boolean);
+const contextRoot = pathParts.length > 0 && pathParts[0].indexOf('.') === -1 ? '/' + pathParts[0] : '';
+const API = location.origin + contextRoot + '/rest';
+let currentUser=null, authHeader='', stations=[], connectors=[], selectedStation=null, map=null, markerLayer=null;
 function msg(id,text,cls=''){ const el=document.getElementById(id); el.textContent=text; el.className=cls; }
 function auth(){ return { 'Authorization': authHeader, 'Content-Type':'application/json' }; }
 async function request(path, options={}){ const res=await fetch(API+path, options); const text=await res.text(); let data=text?JSON.parse(text):null; if(!res.ok) throw new Error(data?.message || ('HTTP '+res.status)); return data; }
 async function login(){ const username=document.getElementById('username').value; const password=document.getElementById('password').value; authHeader='Basic '+btoa(username+':'+password); try{ currentUser=await request('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})}); document.getElementById('loginCard').classList.add('hidden'); document.getElementById('app').classList.remove('hidden'); document.getElementById('who').textContent='Logged in as '+currentUser.username+' ('+currentUser.role+')'; if(currentUser.role==='ADMIN') document.getElementById('adminPanel').classList.remove('hidden'); await loadAll(); }catch(e){ msg('loginMsg',e.message,'error'); } }
 function logout(){ location.reload(); }
-async function loadAll(){ stations=await request('/stations'); connectors=await request('/connectors'); drawMap(); renderBookings(); }
-function drawMap(){ if(!map){ map=L.map('map').setView([39.2,22.5],6); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map); } stations.forEach(s=>{ L.marker([s.latitude,s.longitude]).addTo(map).bindPopup('<b>'+s.stationName+'</b><br>'+s.address).on('click',()=>selectStation(s)); }); }
+async function loadAll(){ stations=await request('/stations'); connectors=await request('/connectors'); drawMap(); renderBookings(); if(currentUser&&currentUser.role==='ADMIN') renderAdminTables(); }
+function drawMap(){ if(!map){ map=L.map('map').setView([39.2,22.5],6); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map); markerLayer=L.layerGroup().addTo(map); } markerLayer.clearLayers(); stations.forEach(s=>{ L.marker([s.latitude,s.longitude]).addTo(markerLayer).bindPopup('<b>'+s.stationName+'</b><br>'+s.address).on('click',()=>selectStation(s)); }); }
 function selectStation(s){ selectedStation=s; const cs=connectors.filter(c=>c.stationId===s.stationId); document.getElementById('stationDetails').innerHTML='<b>'+s.stationName+'</b><br>'+s.address+'<br>ID: '+s.stationId+'<br>Connectors: '+cs.map(c=>c.connectorType+' (#'+c.connectorId+')').join(', '); const sel=document.getElementById('connectorSelect'); sel.innerHTML=cs.map(c=>'<option value="'+c.connectorId+'">'+c.connectorType+' (#'+c.connectorId+')</option>').join(''); }
-async function renderBookings(){ try{ const bookings=await request('/bookings',{headers:auth()}); const body=document.getElementById('bookingsBody'); body.innerHTML=bookings.map(b=>{ const st=stations.find(s=>s.stationId===b.stationId); const co=connectors.find(c=>c.connectorId===b.connectorId); return `<tr><td>${b.bookingId}</td><td>${b.driverUsername}</td><td>${st?st.stationName:b.stationId}</td><td>${co?co.connectorType:b.connectorId}</td><td>${b.date}</td><td>${b.startTime}-${b.endTime}</td><td>${b.bookingStatus}</td><td><button onclick='editBooking(${JSON.stringify(b)})'>Edit</button> <button class="danger" onclick="cancelBooking(${b.bookingId})">Cancel</button></td></tr>`; }).join(''); }catch(e){ msg('bookingMsg',e.message,'error'); } }
-async function saveBooking(){ if(!selectedStation){ msg('bookingMsg','Select a station first','error'); return; } const booking={driverUsername: currentUser.username,stationId: selectedStation.stationId,connectorId: Number(document.getElementById('connectorSelect').value),date: document.getElementById('date').value,startTime: document.getElementById('startTime').value, endTime: document.getElementById('endTime').value}; const id=document.getElementById('bookingId').value; try{ if(id) await request('/bookings/'+id,{method:'PUT',headers:auth(),body:JSON.stringify(booking)}); else await request('/bookings',{method:'POST',headers:auth(),body:JSON.stringify(booking)}); msg('bookingMsg','Booking saved','success'); clearForm(); await renderBookings(); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+async function renderBookings(){ try{ const bookings=await request('/bookings',{headers:auth()}); const body=document.getElementById('bookingsBody'); body.innerHTML=bookings.map(b=>{ const st=stations.find(s=>s.stationId===b.stationId); const co=connectors.find(c=>c.connectorId===b.connectorId); const deleteBtn = currentUser.role==='ADMIN' ? `<button class="danger" onclick="deleteBookingPermanently(${b.bookingId})">Delete</button>` : ''; return `<tr><td>${b.bookingId}</td><td>${b.driverUsername}</td><td>${st?st.stationName:b.stationId}</td><td>${co?co.connectorType:b.connectorId}</td><td>${b.date}</td><td>${b.startTime}-${b.endTime}</td><td>${b.bookingStatus}</td><td><button onclick='editBooking(${JSON.stringify(b)})'>Edit</button> <button class="danger" onclick="cancelBooking(${b.bookingId})">Cancel</button> ${deleteBtn}</td></tr>`; }).join(''); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+async function saveBooking(){ if(!selectedStation){ msg('bookingMsg','Select a station first','error'); return; } const booking={driverUsername: currentUser.username,stationId: selectedStation.stationId,connectorId: Number(document.getElementById('connectorSelect').value),date: document.getElementById('date').value,startTime: document.getElementById('startTime').value, endTime: document.getElementById('endTime').value}; const id=document.getElementById('bookingId').value; try{ const available=await isRequestWindowAvailable(booking); if(!available){ msg('bookingMsg','Selected window is not available','error'); return; } if(id) await request('/bookings/'+id,{method:'PUT',headers:auth(),body:JSON.stringify(booking)}); else await request('/bookings',{method:'POST',headers:auth(),body:JSON.stringify(booking)}); msg('bookingMsg','Booking saved','success'); clearForm(); await renderBookings(); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+async function checkAvailability(){
+  if(!selectedStation){ msg('bookingMsg','Select a station first','error'); return; }
+  const connectorId = Number(document.getElementById('connectorSelect').value || 0);
+  const date = document.getElementById('date').value;
+  const start = document.getElementById('startTime').value;
+  const end = document.getElementById('endTime').value;
+  if(!date || !start || !end){ msg('bookingMsg','Choose date and times first','error'); return; }
+  try{
+    const q = `/slots/available?stationId=${selectedStation.stationId}&connectorId=${connectorId}&date=${encodeURIComponent(date)}&startTime=${encodeURIComponent(start)}&endTime=${encodeURIComponent(end)}`;
+    const slots = await request(q);
+    const available = slots.filter(s=>s.available);
+    document.getElementById('slotSummary').textContent = available.length > 0
+      ? `Available slots found: ${available.length}`
+      : 'No available slots found for the selected time window.';
+    document.getElementById('slotList').innerHTML = available.slice(0,10).map(s=>`• ${s.date} ${s.startTime}-${s.endTime} (connector #${s.connectorId})`).join('<br>');
+    if(available.length===0) msg('bookingMsg','No free slot for the selected request','error'); else msg('bookingMsg','Slot is available','success');
+  }catch(e){ msg('bookingMsg',e.message,'error'); }
+}
 function editBooking(b){ const s=stations.find(x=>x.stationId===b.stationId); selectStation(s); document.getElementById('bookingId').value=b.bookingId; document.getElementById('connectorSelect').value=b.connectorId; document.getElementById('date').value=b.date; document.getElementById('startTime').value=b.startTime; document.getElementById('endTime').value=b.endTime; }
-function clearForm(){ ['bookingId','date','startTime','endTime'].forEach(id=>document.getElementById(id).value=''); }
+function clearForm(){ ['bookingId','date','startTime','endTime'].forEach(id=>document.getElementById(id).value=''); document.getElementById('slotSummary').textContent=''; document.getElementById('slotList').innerHTML=''; }
 async function cancelBooking(id){ try{ await request('/bookings/'+id,{method:'DELETE',headers:auth()}); await renderBookings(); }catch(e){ msg('bookingMsg',e.message,'error'); } }
-async function addStation(){ try{ await request('/stations',{method:'POST',headers:auth(),body:JSON.stringify({stationName:val('newStationName'),address:val('newAddress'),latitude:Number(val('newLat')),longitude:Number(val('newLng'))})}); msg('adminMsg','Station added','success'); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
-async function addConnector(){ try{ await request('/connectors',{method:'POST',headers:auth(),body:JSON.stringify({stationId:Number(val('newConnectorStationId')),connectorType:val('newConnectorType')})}); msg('adminMsg','Connector added','success'); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+async function deleteBookingPermanently(id){ if(!confirm('Delete booking permanently?')) return; try{ await request('/bookings/'+id+'?hardDelete=true',{method:'DELETE',headers:auth()}); msg('bookingMsg','Booking deleted','success'); await renderBookings(); }catch(e){ msg('bookingMsg',e.message,'error'); } }
+async function saveStation(){ const id=val('editStationId'); const payload={stationName:val('newStationName'),address:val('newAddress'),latitude:Number(val('newLat')),longitude:Number(val('newLng'))}; try{ if(id) await request('/stations/'+id,{method:'PUT',headers:auth(),body:JSON.stringify(payload)}); else await request('/stations',{method:'POST',headers:auth(),body:JSON.stringify(payload)}); msg('adminMsg','Station saved','success'); clearStationForm(); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+function editStation(stationId){ const s=stations.find(x=>x.stationId===stationId); if(!s) return; document.getElementById('editStationId').value=s.stationId; document.getElementById('newStationName').value=s.stationName; document.getElementById('newAddress').value=s.address; document.getElementById('newLat').value=s.latitude; document.getElementById('newLng').value=s.longitude; }
+async function deleteStation(stationId){ if(!confirm('Delete station #'+stationId+' ?')) return; try{ await request('/stations/'+stationId,{method:'DELETE',headers:auth()}); msg('adminMsg','Station deleted','success'); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+function clearStationForm(){ ['editStationId','newStationName','newAddress','newLat','newLng'].forEach(id=>document.getElementById(id).value=''); }
+async function saveConnector(){ const id=val('editConnectorId'); const payload={stationId:Number(val('newConnectorStationId')),connectorType:val('newConnectorType')}; try{ if(id) await request('/connectors/'+id,{method:'PUT',headers:auth(),body:JSON.stringify(payload)}); else await request('/connectors',{method:'POST',headers:auth(),body:JSON.stringify(payload)}); msg('adminMsg','Connector saved','success'); clearConnectorForm(); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+function editConnector(connectorId){ const c=connectors.find(x=>x.connectorId===connectorId); if(!c) return; document.getElementById('editConnectorId').value=c.connectorId; document.getElementById('newConnectorStationId').value=c.stationId; document.getElementById('newConnectorType').value=c.connectorType; }
+async function deleteConnector(connectorId){ if(!confirm('Delete connector #'+connectorId+' ?')) return; try{ await request('/connectors/'+connectorId,{method:'DELETE',headers:auth()}); msg('adminMsg','Connector deleted','success'); await loadAll(); }catch(e){ msg('adminMsg',e.message,'error'); } }
+function clearConnectorForm(){ ['editConnectorId','newConnectorStationId','newConnectorType'].forEach(id=>document.getElementById(id).value=''); }
+function renderAdminTables(){
+  const stationsBody=document.getElementById('stationsBody');
+  const connectorsBody=document.getElementById('connectorsBody');
+  if(!stationsBody||!connectorsBody) return;
+  stationsBody.innerHTML=stations.map(s=>`<tr><td>${s.stationId}</td><td>${s.stationName}</td><td>${s.address}</td><td>${s.latitude}, ${s.longitude}</td><td><button onclick="editStation(${s.stationId})">Edit</button> <button class="danger" onclick="deleteStation(${s.stationId})">Delete</button></td></tr>`).join('');
+  connectorsBody.innerHTML=connectors.map(c=>`<tr><td>${c.connectorId}</td><td>${c.connectorType}</td><td>${c.stationId}</td><td><button onclick="editConnector(${c.connectorId})">Edit</button> <button class="danger" onclick="deleteConnector(${c.connectorId})">Delete</button></td></tr>`).join('');
+}
+async function isRequestWindowAvailable(booking){
+  const q = `/slots/available?stationId=${booking.stationId}&connectorId=${booking.connectorId}&date=${encodeURIComponent(booking.date)}&startTime=${encodeURIComponent(booking.startTime)}&endTime=${encodeURIComponent(booking.endTime)}`;
+  const slots = await request(q);
+  return slots.some(s=>s.available);
+}
 function val(id){ return document.getElementById(id).value; }
 </script>
 </body>
