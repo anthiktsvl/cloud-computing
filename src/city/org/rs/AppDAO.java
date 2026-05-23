@@ -255,24 +255,28 @@ public final class AppDAO {
         String driverSqlNoIgnore = "SELECT COUNT(*) FROM bookings WHERE booking_status = 'ACTIVE' AND booking_date = ? AND driver_username = ? AND ? < end_time AND ? > start_time";
 
         try (Connection conn = getConnection()) {
+            Date sqlDate = Date.valueOf(date);
+            Time sqlStart = Time.valueOf(start);
+            Time sqlEnd = Time.valueOf(end);
+
             if (ignoreBookingId != null) {
-                if (count(conn, overlapSql, b.getDate(), b.getConnectorId(), ignoreBookingId.intValue(), b.getStartTime(), b.getEndTime()) > 0) {
+                if (count(conn, overlapSql, sqlDate, b.getConnectorId(), ignoreBookingId.intValue(), sqlStart, sqlEnd) > 0) {
                     return "This connector is already booked during that time";
                 }
-                if (count(conn, driverSql, b.getDate(), b.getDriverUsername(), ignoreBookingId.intValue(), b.getStartTime(), b.getEndTime()) > 0) {
+                if (count(conn, driverSql, sqlDate, b.getDriverUsername(), ignoreBookingId.intValue(), sqlStart, sqlEnd) > 0) {
                     return "Driver already has an overlapping booking";
                 }
             } else {
-                if (count(conn, overlapSqlNoIgnore, b.getDate(), b.getConnectorId(), b.getStartTime(), b.getEndTime()) > 0) {
+                if (count(conn, overlapSqlNoIgnore, sqlDate, b.getConnectorId(), sqlStart, sqlEnd) > 0) {
                     return "This connector is already booked during that time";
                 }
-                if (count(conn, driverSqlNoIgnore, b.getDate(), b.getDriverUsername(), b.getStartTime(), b.getEndTime()) > 0) {
+                if (count(conn, driverSqlNoIgnore, sqlDate, b.getDriverUsername(), sqlStart, sqlEnd) > 0) {
                     return "Driver already has an overlapping booking";
                 }
             }
 
             String slotSql = "SELECT COUNT(*) FROM available_slots WHERE station_id = ? AND connector_id = ? AND slot_date = ? AND start_time <= ? AND end_time >= ? AND is_available = TRUE";
-            if (count(conn, slotSql, b.getStationId(), b.getConnectorId(), Date.valueOf(date), Time.valueOf(start), Time.valueOf(end)) <= 0) {
+            if (count(conn, slotSql, b.getStationId(), b.getConnectorId(), sqlDate, sqlStart, sqlEnd) <= 0) {
                 return "Requested time is outside available slots";
             }
             return null;
