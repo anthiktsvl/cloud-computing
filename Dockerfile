@@ -1,13 +1,13 @@
 # Build stage
-FROM maven:3.9.9-eclipse-temurin-17 AS build
+FROM maven:3.9.6-eclipse-temurin-11 AS build
 WORKDIR /app
-COPY pom.xml /app/pom.xml
-COPY src /app/src
-COPY WebContent /app/WebContent
-RUN mvn -q -DskipTests package
+COPY pom.xml .
+COPY src ./src
+COPY WebContent ./WebContent
+RUN mvn clean package -DskipTests
 
 # Runtime stage
-FROM tomcat:10.1-jdk17-temurin
+FROM tomcat:10.1-jdk8
 ENV INSTANCE_ID=container-instance
-COPY --from=build /app/target/MyWebsite.war /usr/local/tomcat/webapps/MyWebsite.war
+COPY --from=build /app/target/MyWebsite.war /usr/local/tomcat/webapps/ROOT.war
 EXPOSE 8080
