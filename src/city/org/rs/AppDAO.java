@@ -1,5 +1,6 @@
 package city.org.rs;
 
+import java.net.URI;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.DriverManager;
@@ -23,11 +24,16 @@ public final class AppDAO {
     private AppDAO() {
         String envUrl = System.getenv("DATABASE_URL");
         boolean hasExternalDbUrl = envUrl != null && !envUrl.trim().isEmpty();
-        this.jdbcUrl = envUrl != null && !envUrl.trim().isEmpty()
-            ? normalizeJdbcUrl(envUrl)
-                : "jdbc:h2:file:./evbookingdb;MODE=PostgreSQL;AUTO_SERVER=TRUE";
-        this.dbUser = getOrDefault("DATABASE_USERNAME", hasExternalDbUrl ? "" : "sa");
-        this.dbPassword = getOrDefault("DATABASE_PASSWORD", "");
+        if (hasExternalDbUrl) {
+            DbConfig cfg = parseExternalDbConfig(envUrl);
+            this.jdbcUrl = cfg.jdbcUrl;
+            this.dbUser = getOrDefault("DATABASE_USERNAME", cfg.dbUser == null ? "" : cfg.dbUser);
+            this.dbPassword = getOrDefault("DATABASE_PASSWORD", cfg.dbPassword == null ? "" : cfg.dbPassword);
+        } else {
+            this.jdbcUrl = "jdbc:h2:file:./evbookingdb;MODE=PostgreSQL;AUTO_SERVER=TRUE";
+            this.dbUser = getOrDefault("DATABASE_USERNAME", "sa");
+            this.dbPassword = getOrDefault("DATABASE_PASSWORD", "");
+        }
         initializeDatabase();
     }
 
@@ -403,6 +409,16 @@ public final class AppDAO {
     }
 
     private Connection getConnection() throws SQLException {
+        try {
+            if (jdbcUrl.startsWith("jdbc:postgresql:")) {
+                Class.forName("org.postgresql.Driver");
+            } else if (jdbcUrl.startsWith("jdbc:h2:")) {
+                Class.forName("org.h2.Driver");
+            }
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("JDBC driver not found for URL: " + jdbcUrl, e);
+        }
+
         if (dbUser == null || dbUser.trim().isEmpty()) {
             return DriverManager.getConnection(jdbcUrl);
         }
@@ -583,17 +599,67 @@ public final class AppDAO {
         return a.equals(b);
     }
 
-    private String normalizeJdbcUrl(String rawUrl) {
-        String u = rawUrl.trim();
-        if (u.startsWith("jdbc:")) return u;
-        if (u.startsWith("postgres://")) {
-            u = "jdbc:postgresql://" + u.substring("postgres://".length());
-        } else if (u.startsWith("postgresql://")) {
-            u = "jdbc:" + u;
+    private DbConfig parseExternalDbConfig(String rawUrl) {
+        String trimmed = rawUrl.trim();
+        String uriValue = trimmed;
+        if (trimmed.startsWith("jdbc:")) {
+            uriValue = trimmed.substring("jdbc:".length());
         }
-        if (u.startsWith("jdbc:postgresql://") && !u.contains("sslmode=")) {
-            u = u + (u.contains("?") ? "&" : "?") + "sslmode=require";
+
+        URI uri = URI.create(uriValue);
+        String scheme = uri.getScheme();
+        if (scheme == null || (!"postgres".equals(scheme) && !"postgresql".equals(scheme))) {
+            String fallback = trimmed;
+            if (fallback.startsWith("postgres://")) {
+                fallback = "jdbc:postgresql://" + fallback.substring("postgres://".length());
+            } else if (fallback.startsWith("postgresql://")) {
+                fallback = "jdbc:" + fallback;
+            }
+            if (fallback.startsWith("jdbc:postgresql://") && !fallback.contains("sslmode=")) {
+                fallback = fallback + (fallback.contains("?") ? "&" : "?") + "sslmode=require";
+            }
+            return new DbConfig(fallback, null, null);
         }
-        return u;
+
+        String host = uri.getHost();
+        int port = uri.getPort();
+        String path = uri.getPath();
+        String query = uri.getQuery();
+        String userInfo = uri.getUserInfo();
+
+        String parsedUser = null;
+        String parsedPassword = null;
+        if (userInfo != null && !userInfo.isEmpty()) {
+            int colon = userInfo.indexOf(':');
+            if (colon >= 0) {
+                parsedUser = userInfo.substring(0, colon);
+                parsedPassword = userInfo.substring(colon + 1);
+            } else {
+                parsedUser = userInfo;
+            }
+        }
+
+        StringBuilder jdbc = new StringBuilder("jdbc:postgresql://");
+        jdbc.append(host == null ? "localhost" : host);
+        if (port > 0) jdbc.append(":").append(port);
+        if (path != null && !path.isEmpty()) jdbc.append(path);
+        if (query != null && !query.isEmpty()) jdbc.append("?").append(query);
+        if (jdbc.indexOf("sslmode=") < 0) {
+            jdbc.append(jdbc.indexOf("?") >= 0 ? "&" : "?").append("sslmode=require");
+        }
+
+        return new DbConfig(jdbc.toString(), parsedUser, parsedPassword);
+    }
+
+    private static final class DbConfig {
+        private final String jdbcUrl;
+        private final String dbUser;
+        private final String dbPassword;
+
+        private DbConfig(String jdbcUrl, String dbUser, String dbPassword) {
+            this.jdbcUrl = jdbcUrl;
+            this.dbUser = dbUser;
+            this.dbPassword = dbPassword;
+        }
     }
 }
