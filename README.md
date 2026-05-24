@@ -1,97 +1,209 @@
 # EV Charging Station Booking System
 
-This project replaces the original Product REST example with an EV charging station booking application.
+Access our EV Charging Station through here: cloud-computing-production-ae11.up.railway.app
+
+A cloud-deployed, full-stack web application that allows electric vehicle drivers to browse charging stations on an interactive map, check real-time slot availability, and make/manage bookings. Administrators can manage the entire platform — stations, connectors, and bookings — through a dedicated admin panel.
+
+---
+
+## Overview
+
+The system is built on **Jakarta EE / JAX-RS (Jersey)** running on **Apache Tomcat 10.1**, backed by a **PostgreSQL** database on the cloud or an **H2** database locally. The frontend is a single-page application (SPA) using **Leaflet.js** and **OpenStreetMap** for interactive station maps.
+
+### Key features
+
+- **Interactive map** — stations are displayed as markers on a Leaflet/OpenStreetMap map. Clicking a marker shows station details and connector options.
+- **Real-time slot availability** — drivers can query available charging slots by station, connector, date, and time window before making a booking.
+- **Booking management** — drivers can create, edit, and cancel their own bookings. All booking operations enforce business rules (no overlaps, no changes after start time).
+- **Role-based access control (RBAC)** — two roles: `DRIVER` and `ADMIN`. Drivers manage only their own bookings; admins have full access.
+- **Admin CRUD panel** — admins can add, edit, and delete charging stations and connectors via the web UI.
+- **Structured request logging** — every REST call is logged in JSON format including timestamp, method, URI, HTTP status, processing time, and instance ID.
+- **Cloud-ready** — deployed on Railway.app with a managed PostgreSQL database, fully containerised using Docker.
+
+---
+
+## Technology stack
+
+| Layer        | Technology                          |
+|--------------|-------------------------------------|
+| Backend      | Java 8, Jakarta EE, Jersey 3.1      |
+| Runtime      | Apache Tomcat 10.1                  |
+| Database     | PostgreSQL (cloud) / H2 (local)     |
+| Frontend     | HTML, CSS, Vanilla JS               |
+| Maps         | Leaflet 1.9.4 + OpenStreetMap       |
+| Build        | Maven 3.9                           |
+| Container    | Docker (multi-stage build)          |
+| Cloud PaaS   | Railway.app                         |
+
+---
+
+## Cloud Deployment — Railway.app
+
+The application is deployed on **[Railway.app](https://railway.app)**, a cloud platform that supports Docker-based deployments with managed PostgreSQL databases.
+
+### Why Railway?
+
+- Free tier with $5/month credit (no credit card required to start)
+- Native Docker support — detects `Dockerfile` automatically
+- Managed PostgreSQL service with one-click provisioning
+- Automatic redeployment on every GitHub push
+- Built-in environment variable management
+
+### Deployment architecture
+
+```
+GitHub repo (main branch)
+        │
+        ▼
+Railway build (Docker multi-stage)
+   Maven compiles → target/MyWebsite.war
+        │
+        ▼
+Tomcat 10.1 container (port 8080)
+        │
+        ▼
+PostgreSQL (Railway managed database)
+```
+
+### Environment variables used on Railway
+
+| Variable            | Description                                      |
+|---------------------|--------------------------------------------------|
+| `DATABASE_URL`      | PostgreSQL connection URL (from Railway Postgres) |
+| `DATABASE_USERNAME` | PostgreSQL username                              |
+| `DATABASE_PASSWORD` | PostgreSQL password                              |
+| `INSTANCE_ID`       | Identifier for this deployment instance (e.g. `railway-1`) |
+
+The app automatically detects whether it is running locally (H2) or on Railway (PostgreSQL) by checking the presence of `DATABASE_URL`.
+
+### How to redeploy
+
+1. Push changes to the `main` branch on GitHub.
+2. Railway automatically triggers a new Docker build and deploys.
+3. Or manually trigger a redeploy from the Railway dashboard → Deployments → Redeploy.
+
+---
 
 ## Demo users
 
-- Driver: `driver1` / `password`
-- Driver: `driver2` / `password`
-- Admin: `admin` / `admin`
+| Role   | Username  | Password  |
+|--------|-----------|-----------|
+| Driver | `driver1` | `password` |
+| Driver | `driver2` | `password` |
+| Admin  | `admin`   | `admin`   |
 
-## Main REST endpoints
+---
 
-Base path: `/MyWebsite/rest`
+## REST API endpoints
 
-- `POST /auth/login`
-- `GET /stations`
-- `POST /stations` admin only
-- `PUT /stations/{id}` admin only
-- `DELETE /stations/{id}` admin only
-- `GET /connectors?stationId=1`
-- `GET /slots/available?stationId=1&date=2026-06-05&startTime=10:00&endTime=11:00`
-- `POST /connectors` admin only
-- `PUT /connectors/{id}` admin only
-- `DELETE /connectors/{id}` admin only
-- `GET /bookings` driver sees own bookings, admin sees all
-- `POST /bookings` creates a booking
-- `PUT /bookings/{id}` modifies a booking before it starts
-- `DELETE /bookings/{id}` cancels a booking before it starts
-- `DELETE /bookings/{id}?hardDelete=true` admin hard delete
+Base path: `/rest`
 
-## Implemented assignment rules
+### Authentication
+| Method | Path         | Auth required | Description        |
+|--------|--------------|---------------|--------------------|
+| POST   | `/auth/login` | No           | Login, returns user object |
+
+### Stations
+| Method | Path              | Auth required | Description           |
+|--------|-------------------|---------------|-----------------------|
+| GET    | `/stations`       | No            | List all stations     |
+| POST   | `/stations`       | Admin         | Add a new station     |
+| PUT    | `/stations/{id}`  | Admin         | Update a station      |
+| DELETE | `/stations/{id}`  | Admin         | Delete a station      |
+
+### Connectors
+| Method | Path               | Auth required | Description            |
+|--------|--------------------|---------------|------------------------|
+| GET    | `/connectors`      | No            | List connectors (optionally filter by `?stationId=`) |
+| POST   | `/connectors`      | Admin         | Add a connector        |
+| PUT    | `/connectors/{id}` | Admin         | Update a connector     |
+| DELETE | `/connectors/{id}` | Admin         | Delete a connector     |
+
+### Available slots
+| Method | Path                  | Auth required | Description                              |
+|--------|-----------------------|---------------|------------------------------------------|
+| GET    | `/slots/available`    | No            | Query available slots by `stationId`, `connectorId`, `date`, `startTime`, `endTime` |
+
+### Bookings
+| Method | Path                           | Auth required | Description                          |
+|--------|--------------------------------|---------------|--------------------------------------|
+| GET    | `/bookings`                    | Driver/Admin  | Driver sees own; admin sees all      |
+| POST   | `/bookings`                    | Driver/Admin  | Create a booking                     |
+| PUT    | `/bookings/{id}`               | Driver/Admin  | Modify booking (before start time)   |
+| DELETE | `/bookings/{id}`               | Driver/Admin  | Cancel booking (before start time)   |
+| DELETE | `/bookings/{id}?hardDelete=true` | Admin       | Permanently delete a booking         |
+
+---
+
+## Business rules enforced
 
 - Drivers can only view, modify, and cancel their own bookings.
-- Admin can manage stations, connectors, and all bookings.
-- The DAO rejects connector double-bookings for overlapping time periods.
-- The DAO rejects overlapping bookings for the same driver.
-- A booking cannot be modified or cancelled after its start time.
-- Available charging slots are stored in a database table and can be queried by station/connector/date/time.
-- Request logging is implemented in `RequestLoggingFilter` with timestamp, method, URI, status code, processing time, and instance identifier.
-- The client UI includes a Leaflet/OpenStreetMap station map.
+- Admins have full access to all resources.
+- A connector cannot be double-booked for overlapping time slots.
+- A driver cannot have two overlapping bookings.
+- Bookings cannot be modified or cancelled after the start time has passed.
+- A booking must fall within a configured available slot in the database.
+- All authentication is HTTP Basic Auth (Base64-encoded `username:password`).
 
-## Database
+---
 
-`AppDAO` is JDBC-based and initializes schema + seed data automatically.
+## Database schema
 
-- Local default (no env vars): H2 file database
-- Cloud option: set PostgreSQL JDBC URL and credentials via env vars
+The schema is created automatically on startup. There are 5 tables:
 
-## Suggested deployment configuration
+- `users` — stores usernames, hashed passwords, and roles
+- `charging_stations` — station name, address, coordinates
+- `connectors` — connector type linked to a station
+- `available_slots` — 14-day rolling grid of hourly slots (8am–10pm) per connector
+- `bookings` — driver bookings with status (`ACTIVE`, `CANCELLED`)
 
-Use environment variables such as:
+**Local development** uses H2 file database (no configuration needed).  
+**Cloud deployment** uses PostgreSQL via `DATABASE_URL` environment variable.
 
-- `DATABASE_URL`
-- `DATABASE_USERNAME`
-- `DATABASE_PASSWORD`
-- `INSTANCE_ID`
+---
 
-The request logger already reads `INSTANCE_ID`, which supports multi-instance cloud deployments.
+## Request logging
 
-## PaaS deployment steps (for coursework)
+Every REST request is logged to stdout in structured JSON format:
 
-1. Provision a PostgreSQL database add-on/service on your PaaS provider.
-2. Set app environment variables:
-	- `DATABASE_URL` (JDBC URL, for example `jdbc:postgresql://host:5432/dbname`)
-	- `DATABASE_USERNAME`
-	- `DATABASE_PASSWORD`
-	- `INSTANCE_ID` (for example `ev-booking-instance-1`)
-3. Deploy the WAR to your servlet runtime (Tomcat/Jakarta-compatible runtime on your platform).
-	- Optional: use the provided `Dockerfile` for container-based PaaS deployment.
-4. Send test requests to:
-	- `/rest/auth/login`
-	- `/rest/stations`
-	- `/rest/connectors`
-	- `/rest/slots/available`
-	- `/rest/bookings`
-5. Confirm logs include required fields on each request:
-	- `timestamp`
-	- `method`
-	- `uri`
-	- `status`
-	- `processingTimeMs`
-	- `instanceId`
+```json
+{
+  "timestamp": "2026-05-23T18:45:00.123Z",
+  "method": "POST",
+  "uri": "/rest/bookings",
+  "status": 201,
+  "processingTimeMs": 42,
+  "instanceId": "railway-1"
+}
+```
+
+The `instanceId` is set via the `INSTANCE_ID` environment variable, enabling log correlation across multiple instances.
+
+---
+
+## Running locally
+
+```bash
+mvn clean package -DskipTests
+# deploy target/MyWebsite.war to a local Tomcat 10.1 instance
+# app runs at http://localhost:8080/
+```
+
+No database configuration is needed — H2 will be created automatically.
+
+---
 
 ## Coursework evidence checklist
 
-Capture screenshots or API traces for each of the following:
-
-- Authentication success and failure.
-- DRIVER can only view own bookings.
-- DRIVER cannot modify/cancel another driver's booking.
-- ADMIN can create/update/delete stations and connectors.
-- ADMIN can hard delete a booking (`hardDelete=true`).
-- Overlap rejection for same connector and same driver.
-- Rejection when trying to modify/cancel after start time.
-- Map-based station selection and slot availability check.
-- Cloud deployment URL and cloud database connection details.
-- Request logs with all required logging fields.
+- [X] Authentication success and failure responses
+- [X] DRIVER can only view own bookings
+- [X] DRIVER cannot modify/cancel another driver's booking (403 response)
+- [X] ADMIN can create, update, delete stations and connectors
+- [X] ADMIN can permanently delete a booking (`?hardDelete=true`)
+- [X] Overlap rejection for same connector (409 response)
+- [X] Overlap rejection for same driver (409 response)
+- [X] Rejection when modifying/cancelling after start time (409 response)
+- [X] Map-based station selection and slot availability check
+- [X] Cloud deployment live URL (Railway.app)
+- [ ] Cloud database connection (Railway PostgreSQL)
+- [ ] Request logs with all required JSON fields visible in Railway log viewer
