@@ -205,5 +205,5 @@ No database configuration is needed — H2 will be created automatically.
 - [X] Rejection when modifying/cancelling after start time (409 response)
 - [X] Map-based station selection and slot availability check
 - [X] Cloud deployment live URL (Railway.app)
-- [ ] Cloud database connection (Railway PostgreSQL)
-- [ ] Request logs with all required JSON fields visible in Railway log viewer
+- [X] Cloud database connection (Railway PostgreSQL)
+- [X] Request logs with all required JSON fields visible in Railway log viewer
